@@ -7,7 +7,6 @@ import {
   Paintbrush, RotateCcw, Sparkles, TrendingUp, Calendar, Zap, Target, Trophy
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import OnboardingWizard from '../components/routine/OnboardingWizard'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -100,11 +99,7 @@ function blocksToGrid(blocks: FixedBlock[], wakeSlot: number, sleepSlot: number)
 
 export default function Routine() {
   const queryClient = useQueryClient()
-  const { data, isLoading, isError } = useQuery({ queryKey: ['routine'], queryFn: routinesApi.get, retry: false })
-  const [dismissedOnboarding, setDismissedOnboarding] = useState(false)
-
-  // Show onboarding when no routine exists AND user hasn't dismissed it
-  const needsOnboarding = !isLoading && (isError || !data?.routine) && !dismissedOnboarding
+  const { data, isLoading } = useQuery({ queryKey: ['routine'], queryFn: routinesApi.get, retry: false })
 
   const [wakeUpTime, setWakeUpTime] = useState('06:00')
   const [sleepTime, setSleepTime] = useState('23:00')
@@ -327,10 +322,6 @@ export default function Routine() {
         <Loader2 size={32} className="animate-spin text-violet-400" />
       </div>
     )
-  }
-
-  if (needsOnboarding) {
-    return <OnboardingWizard onComplete={() => setDismissedOnboarding(true)} />
   }
 
   return (
