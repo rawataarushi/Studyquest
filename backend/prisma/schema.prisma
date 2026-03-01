@@ -1,0 +1,309 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  email            String    @unique
+  username         String    @unique
+  password         String
+  name             String
+  avatar           String?
+  branch           String?
+  semester         Int?
+  college          String?
+  bio              String?
+  leetcodeUsername String?
+  codeforcesHandle String?
+  
+  // Gamification
+  xp              Int       @default(0)
+  level           Int       @default(1)
+  streak          Int       @default(0)
+  lastActiveDate  DateTime?
+  totalStudyHours Float     @default(0)
+  tasksCompleted  Int       @default(0)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  routine         Routine?
+  tasks           Task[]
+  timetables      Timetable[]
+  syllabuses      Syllabus[]
+  badges          UserBadge[]
+  sessions        StudySession[]
+  challengesSent  Challenge[]   @relation("ChallengeSender")
+  challengesReceived Challenge[] @relation("ChallengeReceiver")
+  notifications   Notification[]
+
+  @@map("users")
+}
+
+model Routine {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @unique @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+  
+  wakeUpTime    String   // "06:00"
+  sleepTime     String   // "23:00"
+  
+  // Fixed time blocks (JSON array of {day, startTime, endTime, label})
+  fixedBlocks   Json     @default("[]")
+  
+  // Available study slots per day (computed)
+  studyDaysPerWeek Int   @default(6)
+  
+  // Study preferences
+  preferredSessionLength Int @default(90) // minutes per session
+  breakDuration Int       @default(15)   // minutes
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("routines")
+}
+
+model Task {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String    @db.ObjectId
+  user       User      @relation(fields: [userId], references: [id])
+  syllabusId String?   @db.ObjectId
+  syllabus   Syllabus? @relation(fields: [syllabusId], references: [id])
+  
+  title         String
+  description   String?
+  subject       String
+  type          TaskType    @default(STUDY)
+  priority      Priority    @default(MEDIUM)
+  difficulty    Difficulty  @default(MEDIUM)
+  
+  estimatedHours Float
+  actualHours   Float?
+  
+  dueDate       DateTime?
+  scheduledDate DateTime?
+  scheduledStart String?   // "09:00"
+  scheduledEnd  String?     // "10:30"
+  
+  status        TaskStatus  @default(PENDING)
+  completedAt   DateTime?
+  
+  isRevision    Boolean     @default(false)
+  parentTaskId  String?     // for revision tasks linked to original
+  
+  xpReward      Int         @default(10)
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@map("tasks")
+}
+
+model Timetable {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+  
+  weekStart DateTime
+  weekEnd   DateTime
+  
+  entries   TimetableEntry[]
+  
+  isActive  Boolean         @default(true)
+  aiGenerated Boolean       @default(false)
+  
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@map("timetables")
+}
+
+model TimetableEntry {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  timetableId String    @db.ObjectId
+  timetable   Timetable @relation(fields: [timetableId], references: [id])
+  
+  taskId      String?
+  
+  day         Int        // 0=Sunday, 1=Monday, ..., 6=Saturday
+  date        DateTime
+  startTime   String     // "09:00"
+  endTime     String     // "10:30"
+  label       String
+  subject     String?
+  type        TaskType   @default(STUDY)
+  
+  isCompleted Boolean    @default(false)
+  isDelayed   Boolean    @default(false)
+  delayReason String?
+  
+  @@map("timetable_entries")
+}
+
+model Syllabus {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+  
+  subject     String
+  semester    Int?
+  targetDays  Int      @default(30)
+  pdfUrl      String?
+  rawText     String?
+  
+  // AI-parsed topics (JSON array)
+  topics      Json     @default("[]")
+  
+  totalTopics Int      @default(0)
+  completedTopics Int  @default(0)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  tasks       Task[]
+
+  @@map("syllabuses")
+}
+
+model StudySession {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+  
+  taskId      String?
+  subject     String
+  
+  startTime   DateTime
+  endTime     DateTime?
+  duration    Float?   // in minutes
+  
+  notes       String?
+  productivity Int?    // 1-5 self rating
+  
+  createdAt   DateTime @default(now())
+
+  @@map("study_sessions")
+}
+
+model Badge {
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  name        String      @unique
+  description String
+  icon        String
+  xpReward    Int         @default(50)
+  condition   Json        // { type: "streak", value: 7 } etc.
+  
+  users       UserBadge[]
+
+  @@map("badges")
+}
+
+model UserBadge {
+  id      String @id @default(auto()) @map("_id") @db.ObjectId
+  userId  String @db.ObjectId
+  user    User   @relation(fields: [userId], references: [id])
+  badgeId String @db.ObjectId
+  badge   Badge  @relation(fields: [badgeId], references: [id])
+  earnedAt  DateTime @default(now())
+
+  @@unique([userId, badgeId])
+  @@map("user_badges")
+}
+
+model Challenge {
+  id         String @id @default(auto()) @map("_id") @db.ObjectId
+  senderId   String @db.ObjectId
+  sender     User   @relation("ChallengeSender", fields: [senderId], references: [id])
+  receiverId String @db.ObjectId
+  receiver   User   @relation("ChallengeReceiver", fields: [receiverId], references: [id])
+  
+  title       String
+  description String?
+  type        ChallengeType   @default(TASKS_COMPLETED)
+  targetValue Int
+  
+  status      ChallengeStatus @default(PENDING)
+  
+  startDate   DateTime
+  endDate     DateTime
+  
+  senderProgress  Int @default(0)
+  receiverProgress Int @default(0)
+  
+  winnerId    String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("challenges")
+}
+
+model Notification {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+  
+  type      String
+  title     String
+  message   String
+  data      Json?
+  isRead    Boolean  @default(false)
+  
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
+
+enum TaskType {
+  STUDY
+  REVISION
+  ASSIGNMENT
+  PROJECT
+  EXAM_PREP
+  PRACTICE
+  BREAK
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  DELAYED
+  SKIPPED
+}
+
+enum ChallengeType {
+  TASKS_COMPLETED
+  STUDY_HOURS
+  STREAK_DAYS
+  XP_POINTS
+  LEETCODE_PROBLEMS
+}
+
+enum ChallengeStatus {
+  PENDING
+  ACCEPTED
+  ACTIVE
+  COMPLETED
+  DECLINED
+}
