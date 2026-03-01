@@ -1,7 +1,7 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  LayoutDashboard, Calendar, CheckSquare, Trophy, BookOpen, User,
+  LayoutDashboard, CheckSquare, Trophy, BookOpen, User,
   LogOut, Menu, X, Flame, Zap, Bell, Brain, BarChart2, Swords, Clock
 } from 'lucide-react'
 import { useAuthStore, useUIStore } from '../../store'
@@ -15,7 +15,6 @@ import ThemePicker from '../theme/ThemePicker'
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/timetable', icon: Calendar, label: 'Timetable' },
   { to: '/routine', icon: Clock, label: 'Routine' },
   { to: '/syllabus', icon: BookOpen, label: 'Subjects' },
   { to: '/analytics', icon: BarChart2, label: 'Analytics' },

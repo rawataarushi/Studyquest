@@ -26,6 +26,8 @@ export default function Syllabus() {
       qc.invalidateQueries({ queryKey: ['syllabuses'] })
       setName('')
       setDays(30)
+      // Auto-generate timetable after adding subject
+      generateMutation.mutate()
     },
     onError: () => toast.error('Failed to add subject'),
   })
@@ -41,8 +43,9 @@ export default function Syllabus() {
   const generateMutation = useMutation({
     mutationFn: () => timetableApi.generate(),
     onSuccess: () => {
-      toast.success('AI Timetable generated! Check the Timetable page 🎉')
+      toast.success('AI Timetable generated! Check your Dashboard 🎉')
       qc.invalidateQueries({ queryKey: ['timetable-today'] })
+      qc.invalidateQueries({ queryKey: ['today-tasks'] })
     },
     onError: (err: any) => toast.error(err?.response?.data?.error || 'Failed to generate timetable'),
   })

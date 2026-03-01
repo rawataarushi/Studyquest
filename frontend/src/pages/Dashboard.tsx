@@ -48,6 +48,11 @@ export default function Dashboard() {
     queryKey: ['routine'], queryFn: routinesApi.get, retry: false,
   })
 
+  // Check if user has subjects
+  const { data: syllabusData, isLoading: syllabusLoading } = useQuery({
+    queryKey: ['syllabuses'], queryFn: () => import('../lib/api').then(m => m.syllabusApi.getAll()), retry: false,
+  })
+
   const { data: statsData } = useQuery({ queryKey: ['user-stats'], queryFn: () => usersApi.getStats() })
   const { data: todayData, isLoading: loadingToday } = useQuery({ queryKey: ['today-tasks'], queryFn: tasksApi.getToday })
   const { data: timetableData } = useQuery({ queryKey: ['timetable-today'], queryFn: timetableApi.getToday })
@@ -82,6 +87,12 @@ export default function Dashboard() {
   // Redirect to routine setup if user has no routine
   if (!routineLoading && (routineError || !routineData?.routine)) {
     return <Navigate to="/routine" replace />
+  }
+
+  // Redirect to subjects if routine exists but no subjects added
+  const subjects = syllabusData?.syllabuses || []
+  if (!syllabusLoading && routineData?.routine && subjects.length === 0) {
+    return <Navigate to="/syllabus" replace />
   }
 
   return (
@@ -134,7 +145,7 @@ export default function Dashboard() {
         <StatCard icon={Zap} label="Total XP" value={user?.xp || 0} sub={`Level ${user?.level}`} color="yellow" />
         <StatCard icon={Flame} label="Streak" value={`${user?.streak || 0} days`} sub="Keep it up!" color="orange" />
         <StatCard icon={CheckSquare} label="Tasks Done" value={user?.tasksCompleted || 0} sub="All time" color="green" />
-        <StatCard icon={Clock} label="Study Hours" value={`${(user?.totalStudyHours || 0).toFixed(1)}h`} sub="Total" color="blue" />
+        <StatCard icon={Clock} label="Study Hours" value={`${Math.round(user?.totalStudyHours || 0)}h`} sub="Total" color="blue" />
         <StatCard icon={Trophy} label="Completion" value={`${stats?.completionRate || 0}%`} sub="This week" color="purple" />
       </div>
 
@@ -165,8 +176,8 @@ export default function Dashboard() {
             <div className="text-center py-10 text-muted-foreground">
               <Calendar className="mx-auto mb-2 opacity-30" size={32} />
               <p className="text-sm">No tasks scheduled for today</p>
-              <Link to="/timetable" className="text-primary text-sm hover:underline mt-1 inline-block">
-                Generate AI timetable →
+              <Link to="/syllabus" className="text-primary text-sm hover:underline mt-1 inline-block">
+                Add subjects to generate tasks →
               </Link>
             </div>
           ) : (
@@ -226,10 +237,7 @@ export default function Dashboard() {
 
           <div className="flex gap-2 mt-4">
             <Link to="/syllabus" className="flex-1 text-center text-sm text-primary hover:underline py-1">
-              View all tasks
-            </Link>
-            <Link to="/timetable" className="text-sm bg-primary/10 text-primary hover:bg-primary/20 px-3 py-1 rounded-lg transition-colors">
-              📅 AI Generate
+              View all subjects
             </Link>
           </div>
         </div>
@@ -328,8 +336,7 @@ export default function Dashboard() {
       {/* Quick Actions */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { icon: Brain, label: 'AI Timetable', to: '/timetable', color: 'bg-blue-500/10 text-blue-400' },
-          { icon: BookOpen, label: 'Import Syllabus', to: '/syllabus', color: 'bg-purple-500/10 text-purple-400' },
+          { icon: BookOpen, label: 'Manage Subjects', to: '/syllabus', color: 'bg-purple-500/10 text-purple-400' },
           { icon: Trophy, label: 'Leaderboard', to: '/leaderboard', color: 'bg-yellow-500/10 text-yellow-400' },
           { icon: BarChart2, label: 'Analytics', to: '/analytics', color: 'bg-green-500/10 text-green-400' },
         ].map(({ icon: Icon, label, to, color }) => (

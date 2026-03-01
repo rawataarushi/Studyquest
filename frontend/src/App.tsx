@@ -7,7 +7,7 @@ import Landing from './pages/Landing'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
-import Timetable from './pages/Timetable'
+// Timetable page removed — timetable shown on Dashboard
 import Leaderboard from './pages/Leaderboard'
 import Syllabus from './pages/Syllabus'
 import ProfilePage from './pages/Profile'
@@ -43,7 +43,7 @@ function App() {
         {/* Protected routes */}
         <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/timetable" element={<Timetable />} />
+          <Route path="/timetable" element={<Navigate to="/dashboard" replace />} />
           <Route path="/tasks" element={<Navigate to="/syllabus" replace />} />
           <Route path="/routine" element={<Routine />} />
           <Route path="/syllabus" element={<Syllabus />} />
