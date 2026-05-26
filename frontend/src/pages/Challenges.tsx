@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { challengesApi } from '../lib/api'
+import { challengesApi, usersApi } from '../lib/api'
 import { useAuthStore } from '../store'
-import { Swords, Plus, Trophy, Clock, CheckCircle, X, Loader2, User } from 'lucide-react'
+import { Swords, Plus, Trophy, Clock, CheckCircle, X, Loader2, User, Search, Zap } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { cn, formatDate } from '../lib/utils'
 
@@ -27,12 +27,19 @@ export default function Challenges() {
   const user = useAuthStore(s => s.user)
   const [showModal, setShowModal] = useState(false)
   const [tab, setTab] = useState<'all' | 'received'>('all')
+  const [selectedUser, setSelectedUser] = useState<any>(null)
+  const [searchTerm, setSearchTerm] = useState('')
   const [form, setForm] = useState({
     receiverUsername: '', title: '', description: '',
     challengeType: 'TASKS_COMPLETED', targetValue: 10, startDate: '', endDate: ''
   })
 
-  const { data, isLoading } = useQuery({ queryKey: ['challenges'], queryFn: challengesApi.getAll })
+  const { data: challengesData, isLoading } = useQuery({ queryKey: ['challenges'], queryFn: challengesApi.getAll })
+  const { data: usersData, isLoading: loadingUsers } = useQuery({ 
+    queryKey: ['users-all'], 
+    queryFn: usersApi.getAll,
+    enabled: showModal 
+  })
 
   const createMutation = useMutation({
     mutationFn: challengesApi.create,
@@ -40,6 +47,7 @@ export default function Challenges() {
       toast.success('Challenge sent!')
       qc.invalidateQueries({ queryKey: ['challenges'] })
       setShowModal(false)
+      setSelectedUser(null)
       setForm({ receiverUsername: '', title: '', description: '', challengeType: 'TASKS_COMPLETED', targetValue: 10, startDate: '', endDate: '' })
     },
     onError: (e: any) => toast.error(e?.response?.data?.error || 'Failed to create challenge'),
@@ -55,9 +63,14 @@ export default function Challenges() {
     onError: () => toast.error('Failed to respond'),
   })
 
-  const allChallenges = data?.challenges || []
+  const allChallenges = challengesData?.challenges || []
   const received = allChallenges.filter((c: any) => c.receiver?.id === user?.id && c.status === 'PENDING')
   const displayed = tab === 'received' ? received : allChallenges
+  const allUsers = usersData?.users || []
+  const filteredUsers = allUsers.filter((u: any) => 
+    u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    u.username.toLowerCase().includes(searchTerm.toLowerCase())
+  )
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -171,60 +184,124 @@ export default function Challenges() {
         </div>
       )}
 
-      {/* Create Modal */}
+      {/* Create Modal - Two Step */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && (setShowModal(false), setSelectedUser(null))}>
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-            className="bg-background border border-border rounded-2xl p-6 w-full max-w-md">
-            <h2 className="text-lg font-bold mb-4 flex items-center gap-2"><Swords size={18} className="text-primary" /> New Challenge</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium block mb-1">Opponent Username *</label>
-                <input value={form.receiverUsername} onChange={e => setForm(f => ({ ...f, receiverUsername: e.target.value }))}
-                  placeholder="their username"
-                  className="w-full bg-secondary border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40" />
-              </div>
-              <div>
-                <label className="text-sm font-medium block mb-1">Challenge Title *</label>
-                <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-                  placeholder="e.g. 7-Day Grind Challenge"
-                  className="w-full bg-secondary border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium block mb-1">Type</label>
-                  <select value={form.challengeType} onChange={e => setForm(f => ({ ...f, challengeType: e.target.value }))}
-                    className="w-full bg-secondary border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none">
-                    {CHALLENGE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                  </select>
+            className="bg-background border border-border rounded-2xl p-6 w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+            
+            {!selectedUser ? (
+              <>
+                <h2 className="text-lg font-bold mb-4 flex items-center gap-2"><User size={18} className="text-primary" /> Select Opponent</h2>
+                
+                {/* Search Box */}
+                <div className="relative mb-4">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" size={18} />
+                  <input
+                    type="text"
+                    placeholder="Search by name or username..."
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    className="w-full bg-secondary border border-border rounded-lg pl-10 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
                 </div>
-                <div>
-                  <label className="text-sm font-medium block mb-1">Target</label>
-                  <input type="number" value={form.targetValue} onChange={e => setForm(f => ({ ...f, targetValue: +e.target.value }))}
-                    min={1} className="w-full bg-secondary border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none" />
+
+                {/* Users Grid */}
+                {loadingUsers ? (
+                  <div className="flex justify-center py-12"><Loader2 className="animate-spin text-primary" size={28} /></div>
+                ) : filteredUsers.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <User size={40} className="mx-auto mb-3 opacity-20" />
+                    <p>{searchTerm ? 'No users found' : 'No users available'}</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[500px] overflow-y-auto">
+                    {filteredUsers.map((u: any) => (
+                      <motion.button
+                        key={u.id}
+                        whileHover={{ scale: 1.02 }}
+                        onClick={() => {
+                          setSelectedUser(u)
+                          setForm(f => ({ ...f, receiverUsername: u.username }))
+                        }}
+                        className="text-left p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-primary/5 transition-all"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="font-semibold text-sm">{u.name}</h3>
+                            <p className="text-xs text-muted-foreground">@{u.username}</p>
+                            {u.branch && <p className="text-xs text-muted-foreground mt-1">{u.branch} • Sem {u.semester}</p>}
+                          </div>
+                          <div className="text-right">
+                            <div className="flex items-center gap-1 text-primary text-sm font-semibold">
+                              <Zap size={14} /> Lvl {u.level}
+                            </div>
+                            <p className="text-xs text-muted-foreground">{u.xp} XP</p>
+                          </div>
+                        </div>
+                      </motion.button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <h2 className="text-lg font-bold mb-2 flex items-center gap-2"><Swords size={18} className="text-primary" /> New Challenge</h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Challenge <span className="font-semibold text-foreground">{selectedUser.name}</span>
+                </p>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium block mb-1">Challenge Title *</label>
+                    <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                      placeholder="e.g. 7-Day Grind Challenge"
+                      className="w-full bg-secondary border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium block mb-1">Description (optional)</label>
+                    <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                      placeholder="Add a personal message..."
+                      rows={2}
+                      className="w-full bg-secondary border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-medium block mb-1">Challenge Type *</label>
+                      <select value={form.challengeType} onChange={e => setForm(f => ({ ...f, challengeType: e.target.value }))}
+                        className="w-full bg-secondary border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none">
+                        {CHALLENGE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium block mb-1">Target Value *</label>
+                      <input type="number" value={form.targetValue} onChange={e => setForm(f => ({ ...f, targetValue: +e.target.value }))}
+                        min={1} className="w-full bg-secondary border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-medium block mb-1">Start Date</label>
+                      <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))}
+                        className="w-full bg-secondary border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium block mb-1">End Date</label>
+                      <input type="date" value={form.endDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))}
+                        className="w-full bg-secondary border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none" />
+                    </div>
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => setSelectedUser(null)} className="flex-1 border border-border rounded-lg py-2.5 text-sm hover:bg-secondary transition-colors">← Back</button>
+                    <button onClick={() => createMutation.mutate(form)} disabled={createMutation.isPending || !form.title}
+                      className="flex-1 bg-primary hover:bg-primary/90 text-white rounded-lg py-2.5 text-sm font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-60">
+                      {createMutation.isPending && <Loader2 size={14} className="animate-spin" />}
+                      Send Challenge
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium block mb-1">Start Date</label>
-                  <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))}
-                    className="w-full bg-secondary border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none" />
-                </div>
-                <div>
-                  <label className="text-sm font-medium block mb-1">End Date</label>
-                  <input type="date" value={form.endDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))}
-                    className="w-full bg-secondary border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none" />
-                </div>
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button onClick={() => setShowModal(false)} className="flex-1 border border-border rounded-lg py-2.5 text-sm hover:bg-secondary transition-colors">Cancel</button>
-                <button onClick={() => createMutation.mutate(form)} disabled={createMutation.isPending || !form.receiverUsername || !form.title}
-                  className="flex-1 bg-primary hover:bg-primary/90 text-white rounded-lg py-2.5 text-sm font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-60">
-                  {createMutation.isPending && <Loader2 size={14} className="animate-spin" />}
-                  Send Challenge
-                </button>
-              </div>
-            </div>
+              </>
+            )}
           </motion.div>
         </div>
       )}

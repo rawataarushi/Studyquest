@@ -41,6 +41,7 @@ export const usersApi = {
   getStats: (period?: string) => api.get('/users/stats', { params: period ? { period } : undefined }).then(r => r.data),
   getBadges: () => api.get('/users/badges').then(r => r.data),
   getAIAdvice: () => api.get('/users/ai-advice').then(r => r.data),
+  getAll: () => api.get('/users/all').then(r => r.data),
 }
 
 // Routines
@@ -68,6 +69,7 @@ export const timetableApi = {
   getToday: () => api.get('/timetable/today').then(r => r.data),
   generate: (weekStart?: string) => api.post('/timetable/generate', { weekStart }).then(r => r.data),
   completeEntry: (id: string) => api.patch(`/timetable/entries/${id}/complete`).then(r => r.data),
+  toggleEntry: (id: string) => api.patch(`/timetable/entries/${id}/toggle`).then(r => r.data),
 }
 
 // Syllabus / Subjects

@@ -158,6 +158,26 @@ router.patch('/entries/:id/complete', async (req: AuthRequest, res: Response): P
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
+// PATCH /api/timetable/entries/:id/toggle
+router.patch('/entries/:id/toggle', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    // First get the current state
+    const entry = await prisma.timetableEntry.findFirst({
+      where: { id: req.params.id, timetable: { userId: req.userId! } },
+    });
+    
+    if (!entry) { res.status(404).json({ error: 'Entry not found' }); return; }
+    
+    // Toggle the completion status
+    const updated = await prisma.timetableEntry.updateMany({
+      where: { id: req.params.id, timetable: { userId: req.userId! } },
+      data: { isCompleted: !entry.isCompleted },
+    });
+    
+    res.json({ message: entry.isCompleted ? 'Entry marked incomplete' : 'Entry marked complete' });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 function getMondayOfCurrentWeek(): Date {
   const now = new Date(); now.setHours(0, 0, 0, 0);
   const day = now.getDay();

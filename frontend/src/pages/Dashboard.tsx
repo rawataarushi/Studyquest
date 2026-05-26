@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
+import { useState } from 'react'
 import { usersApi, tasksApi, timetableApi, sessionsApi, routinesApi } from '../lib/api'
 import { useAuthStore, useUIStore } from '../store'
 import {
@@ -42,6 +43,7 @@ export default function Dashboard() {
   const { user } = useAuthStore()
   const { setActiveSession } = useUIStore()
   const qc = useQueryClient()
+  const [selectedDayOffset, setSelectedDayOffset] = useState(0) // 0 = Today, 1 = Tomorrow, etc.
 
   // Check if user has a routine — redirect to setup if not
   const { data: routineData, isLoading: routineLoading, isError: routineError } = useQuery({
@@ -55,7 +57,7 @@ export default function Dashboard() {
 
   const { data: statsData } = useQuery({ queryKey: ['user-stats'], queryFn: () => usersApi.getStats() })
   const { data: todayData, isLoading: loadingToday } = useQuery({ queryKey: ['today-tasks'], queryFn: tasksApi.getToday })
-  const { data: timetableData } = useQuery({ queryKey: ['timetable-today'], queryFn: timetableApi.getToday })
+  const { data: timetableData } = useQuery({ queryKey: ['timetable-current'], queryFn: timetableApi.getCurrent })
   const { data: adviceData } = useQuery({ queryKey: ['ai-advice'], queryFn: usersApi.getAIAdvice, staleTime: 1000 * 60 * 10 })
 
   const completeMutation = useMutation({
@@ -75,14 +77,76 @@ export default function Dashboard() {
     },
   })
 
+  const completeEntryMutation = useMutation({
+    mutationFn: (id: string) => timetableApi.toggleEntry(id),
+    onSuccess: () => {
+      toast.success('Status updated! ✓')
+      qc.invalidateQueries({ queryKey: ['timetable-current'] })
+      qc.invalidateQueries({ queryKey: ['user-stats'] })
+    },
+    onError: () => {
+      toast.error('Failed to update slot')
+    },
+  })
+
   const stats = statsData?.stats
   const todayTasks = todayData?.tasks || []
-  const todayEntries = timetableData?.entries || []
+  const allEntries = timetableData?.timetable?.entries || []
 
   const completedToday = todayTasks.filter((t: { status: string }) => t.status === 'COMPLETED').length
   const totalToday = todayTasks.length
 
   const xpProgress = user ? Math.round((user.xp % 500) / 5) : 0
+
+  // Get entries for selected day
+  const getEntriesForDay = (dayOffset: number) => {
+    const selectedDate = new Date()
+    selectedDate.setDate(selectedDate.getDate() + dayOffset)
+    const selectedDateStr = selectedDate.toISOString().split('T')[0]
+    
+    return allEntries.filter((entry: any) => {
+      if (!entry.date) return dayOffset === 0 // fallback for today if no date field
+      return entry.date.split('T')[0] === selectedDateStr
+    })
+  }
+
+  const selectedDayEntries = getEntriesForDay(selectedDayOffset)
+
+  // Helper function to format time (handles HH:MM and decimal formats like 10.5 or 10.5:00)
+  const formatTime = (timeStr: string) => {
+    if (!timeStr) return 'N/A'
+    
+    let clean = timeStr.trim()
+    
+    // Remove trailing :00 if present (e.g., "10.5:00" -> "10.5")
+    if (clean.endsWith(':00')) {
+      clean = clean.substring(0, clean.length - 3)
+    }
+    
+    // Handle already-formatted HH:MM (e.g., "08:30")
+    if (clean.match(/^\d{1,2}:\d{2}$/)) {
+      return clean
+    }
+    
+    // Handle decimal format (e.g., "10.5" or "8.75")
+    const decimalMatch = clean.match(/^(\d{1,2})\.(\d+)$/)
+    if (decimalMatch) {
+      const hours = parseInt(decimalMatch[1], 10)
+      const decimalPart = parseFloat(`0.${decimalMatch[2]}`)
+      const minutes = Math.round(decimalPart * 60)
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+    }
+    
+    // Try parsing as pure decimal
+    const time = parseFloat(clean)
+    if (!isNaN(time) && time >= 0 && time < 24) {
+      const hours = Math.floor(time)
+      const minutes = Math.round((time - hours) * 60)
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+    }
+    
+    return 'N/A'
+  }
 
   // Redirect to routine setup if user has no routine
   if (!routineLoading && (routineError || !routineData?.routine)) {
@@ -149,13 +213,13 @@ export default function Dashboard() {
         <StatCard icon={Trophy} label="Completion" value={`${stats?.completionRate || 0}%`} sub="This week" color="purple" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Today's Tasks */}
-        <div className="lg:col-span-2 card-glass p-5">
-          <div className="flex items-center justify-between mb-4">
+      <div className="grid grid-cols-1 gap-6">
+        {/* Today's Tasks & Weekly Schedule - Unified */}
+        <div className="card-glass p-5">
+          <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-2">
               <CheckSquare size={16} className="text-primary" />
-              <h2 className="font-semibold">Today's Tasks</h2>
+              <h2 className="font-semibold">Today's Tasks & Schedule</h2>
             </div>
             <div className="text-sm text-muted-foreground">
               {completedToday}/{totalToday} done
@@ -170,146 +234,205 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {loadingToday ? (
-            <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-14 bg-secondary/50 rounded-lg animate-pulse" />)}</div>
-          ) : todayTasks.length === 0 ? (
-            <div className="text-center py-10 text-muted-foreground">
-              <Calendar className="mx-auto mb-2 opacity-30" size={32} />
-              <p className="text-sm">No tasks scheduled for today</p>
-              <Link to="/syllabus" className="text-primary text-sm hover:underline mt-1 inline-block">
-                Add subjects to generate tasks →
-              </Link>
-            </div>
-          ) : (
-            <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
-              {todayTasks.map((task: {
-                id: string; title: string; subject: string; type: string;
-                priority: string; status: string; estimatedHours: number; scheduledStart?: string; xpReward: number
-              }) => (
-                <motion.div
-                  key={task.id}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className={cn(
-                    'flex items-center gap-3 p-3 rounded-lg border border-border/50 hover:border-border transition-all group',
-                    task.status === 'COMPLETED' ? 'opacity-60' : 'hover:bg-secondary/30'
-                  )}
-                >
-                  <span className="text-lg">{getTaskTypeIcon(task.type)}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className={cn('text-sm font-medium truncate', task.status === 'COMPLETED' && 'line-through text-muted-foreground')}>
-                      {task.title}
-                    </p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-muted-foreground">{task.subject}</span>
-                      {task.scheduledStart && <span className="text-xs text-muted-foreground">· {task.scheduledStart}</span>}
-                      <span className={cn('text-xs px-1.5 py-0.5 rounded-full', getPriorityColor(task.priority))}>{task.priority}</span>
-                    </div>
+          {/* Main Content Layout */}
+          <div className={cn('grid gap-6', todayTasks.length > 0 ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1')}>
+            {/* Tasks List - Show only if there are tasks */}
+            {todayTasks.length > 0 && (
+              <div className="lg:col-span-2">
+                <h3 className="text-sm font-semibold mb-3">Tasks</h3>
+                {loadingToday ? (
+                  <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-14 bg-secondary/50 rounded-lg animate-pulse" />)}</div>
+                ) : (
+                  <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+                    {todayTasks.map((task: {
+                      id: string; title: string; subject: string; type: string;
+                      priority: string; status: string; estimatedHours: number; scheduledStart?: string; xpReward: number
+                    }) => (
+                      <motion.div
+                        key={task.id}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className={cn(
+                          'flex items-center gap-3 p-3 rounded-lg border border-border/50 hover:border-border transition-all group',
+                          task.status === 'COMPLETED' ? 'opacity-60' : 'hover:bg-secondary/30'
+                        )}
+                      >
+                        <span className="text-lg">{getTaskTypeIcon(task.type)}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className={cn('text-sm font-medium truncate', task.status === 'COMPLETED' && 'line-through text-muted-foreground')}>
+                            {task.title}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-muted-foreground">{task.subject}</span>
+                            {task.scheduledStart && <span className="text-xs text-muted-foreground">· {task.scheduledStart}</span>}
+                            <span className={cn('text-xs px-1.5 py-0.5 rounded-full', getPriorityColor(task.priority))}>{task.priority}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <span className="xp-badge text-xs">+{task.xpReward}</span>
+                          {task.status !== 'COMPLETED' && (
+                            <>
+                              <button
+                                onClick={() => startSessionMutation.mutate({ subject: task.subject, taskId: task.id })}
+                                className="p-1.5 rounded-lg hover:bg-green-500/10 text-green-400 transition-colors"
+                                title="Start session"
+                              >
+                                <Play size={13} />
+                              </button>
+                              <button
+                                onClick={() => completeMutation.mutate(task.id)}
+                                className="p-1.5 rounded-lg hover:bg-primary/10 text-primary transition-colors"
+                                title="Mark complete"
+                              >
+                                <CheckSquare size={13} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                        <span className={cn('text-xs px-2 py-0.5 rounded-full', getStatusColor(task.status))}>
+                          {task.status}
+                        </span>
+                      </motion.div>
+                    ))}
                   </div>
-                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <span className="xp-badge text-xs">+{task.xpReward}</span>
-                    {task.status !== 'COMPLETED' && (
-                      <>
-                        <button
-                          onClick={() => startSessionMutation.mutate({ subject: task.subject, taskId: task.id })}
-                          className="p-1.5 rounded-lg hover:bg-green-500/10 text-green-400 transition-colors"
-                          title="Start session"
-                        >
-                          <Play size={13} />
-                        </button>
-                        <button
-                          onClick={() => completeMutation.mutate(task.id)}
-                          className="p-1.5 rounded-lg hover:bg-primary/10 text-primary transition-colors"
-                          title="Mark complete"
-                        >
-                          <CheckSquare size={13} />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                  <span className={cn('text-xs px-2 py-0.5 rounded-full', getStatusColor(task.status))}>
-                    {task.status}
-                  </span>
-                </motion.div>
-              ))}
-            </div>
-          )}
-
-          <div className="flex gap-2 mt-4">
-            <Link to="/syllabus" className="flex-1 text-center text-sm text-primary hover:underline py-1">
-              View all subjects
-            </Link>
-          </div>
-        </div>
-
-        {/* Right panel */}
-        <div className="space-y-4">
-          {/* XP Radial */}
-          <div className="card-glass p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <TrendingUp size={16} className="text-yellow-400" />
-              <h3 className="font-semibold text-sm">XP Progress</h3>
-            </div>
-            <div className="h-28">
-              <ResponsiveContainer width="100%" height="100%">
-                <RadialBarChart innerRadius="60%" outerRadius="90%" data={[{ value: xpProgress, fill: '#f59e0b' }]} startAngle={180} endAngle={0}>
-                  <RadialBar dataKey="value" background={{ fill: '#1e293b' }}>
-                    <Cell fill="#f59e0b" />
-                  </RadialBar>
-                  <Tooltip formatter={(v) => [`${v}%`, 'Progress']} contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
-                </RadialBarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="text-center -mt-2">
-              <p className="text-lg font-bold">{user?.xp} XP</p>
-              <p className="text-xs text-muted-foreground">Next level: {xpToNextLevel(user?.xp || 0)} XP</p>
-            </div>
-          </div>
-
-          {/* Today's Timetable */}
-          <div className="card-glass p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <Calendar size={16} className="text-primary" />
-              <h3 className="font-semibold text-sm">Today's Schedule</h3>
-            </div>
-            {todayEntries.length === 0 ? (
-              <div className="text-center py-4 text-muted-foreground text-xs">
-                <p>No scheduled slots</p>
-                <Link to="/timetable" className="text-primary hover:underline">Generate →</Link>
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {todayEntries.slice(0, 6).map((entry: {
-                  id: string; startTime: string; endTime: string; label: string; subject?: string; isCompleted: boolean
-                }) => (
-                  <div key={entry.id} className={cn('flex items-center gap-2 text-xs', entry.isCompleted && 'opacity-50')}>
-                    <div className="text-muted-foreground w-14 shrink-0 font-mono">{entry.startTime}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className={cn('truncate', entry.isCompleted && 'line-through')}>{entry.label}</div>
-                    </div>
-                    {entry.isCompleted && <span className="text-green-400">✓</span>}
-                  </div>
-                ))}
+                )}
+                <div className="flex gap-2 mt-4">
+                  <Link to="/syllabus" className="flex-1 text-center text-sm text-primary hover:underline py-1">
+                    View all subjects
+                  </Link>
+                </div>
               </div>
             )}
+
+            {/* Weekly Schedule - Horizontal Calendar */}
+            <div className={cn(todayTasks.length > 0 ? 'col-span-1' : 'col-span-full')}>
+              <h3 className="text-sm font-semibold mb-3">
+                {todayTasks.length > 0 ? 'Your Week' : 'Weekly Schedule'}
+              </h3>
+              
+              {allEntries.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Calendar className="mx-auto mb-2 opacity-30" size={32} />
+                  <p className="text-sm">No schedule created yet</p>
+                  <Link to="/timetable" className="text-primary text-sm hover:underline mt-1 inline-block">
+                    Generate your timetable →
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Day Selector */}
+                  <div className="grid grid-cols-7 gap-2 pb-2">
+                    {[0, 1, 2, 3, 4, 5, 6].map((dayOffset) => {
+                      const date = new Date()
+                      date.setDate(date.getDate() + dayOffset)
+                      const dayName = dayOffset === 0 ? 'Today' : dayOffset === 1 ? 'Tomorrow' : date.toLocaleDateString('en-US', { weekday: 'short' })
+                      const dayDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                      const isSelected = selectedDayOffset === dayOffset
+                      
+                      return (
+                        <button
+                          key={dayOffset}
+                          onClick={() => setSelectedDayOffset(dayOffset)}
+                          className={cn(
+                            'flex flex-col items-center gap-1 px-3 py-2.5 rounded-lg border transition-all text-xs',
+                            isSelected
+                              ? 'border-primary/50 bg-primary/10 text-foreground font-semibold'
+                              : 'border-border/50 hover:border-border/80 text-muted-foreground'
+                          )}
+                        >
+                          <span className="font-medium text-sm">{dayName}</span>
+                          <span className="text-xs">{dayDate}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {/* Horizontal Time Slots for Selected Day */}
+                  <div className="border-t border-border/30 pt-6">
+                    {selectedDayEntries.length === 0 ? (
+                      <div className="text-center py-12 text-muted-foreground">
+                        <Calendar className="mx-auto mb-3 opacity-20" size={40} />
+                        <p className="text-sm">No slots for this day</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto pb-4">
+                        <div className="flex gap-4 min-w-min">
+                          {selectedDayEntries.map((entry: {
+                            id: string; startTime: string; endTime: string; label: string; subject?: string; isCompleted: boolean
+                          }) => (
+                            <motion.div
+                              key={entry.id}
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              whileHover={{ scale: 1.03, translateY: -5 }}
+                              className={cn(
+                                'flex flex-col min-w-56 p-4 rounded-xl border-2 transition-all shadow-md hover:shadow-lg',
+                                entry.isCompleted
+                                  ? 'border-green-500/50 bg-gradient-to-br from-green-500/15 to-green-600/5'
+                                  : 'border-primary/40 bg-gradient-to-br from-primary/10 to-primary/5 hover:border-primary/70'
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-3 mb-4">
+                                <div className="flex-1">
+                                  <p className="font-mono font-bold text-primary text-lg">
+                                    {formatTime(entry.startTime)}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    to {formatTime(entry.endTime)}
+                                  </p>
+                                </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    completeEntryMutation.mutate(entry.id)
+                                  }}
+                                  disabled={completeEntryMutation.isPending}
+                                  className={cn(
+                                    'flex-shrink-0 p-2 rounded-lg transition-all',
+                                    entry.isCompleted
+                                      ? 'bg-green-500/40 hover:bg-green-500/60'
+                                      : 'bg-border/30 hover:bg-border/50'
+                                  )}
+                                >
+                                  <CheckSquare 
+                                    size={20} 
+                                    className={entry.isCompleted ? 'text-green-400' : 'text-muted-foreground'}
+                                  />
+                                </button>
+                              </div>
+                              <div className="flex-1">
+                                <p className={cn(
+                                  'text-base font-bold leading-tight mb-2',
+                                  entry.isCompleted && 'line-through opacity-70'
+                                )}>
+                                  {entry.label}
+                                </p>
+                                {entry.subject && (
+                                  <div className="inline-block bg-secondary/60 px-3 py-1 rounded-full">
+                                    <p className="text-xs text-muted-foreground font-medium">
+                                      {entry.subject}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            </motion.div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Subject Breakdown */}
-          {stats?.subjectBreakdown?.length > 0 && (
-            <div className="card-glass p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <BarChart2 size={16} className="text-purple-400" />
-                <h3 className="font-semibold text-sm">Top Subjects</h3>
-              </div>
-              <div className="space-y-2">
-                {stats.subjectBreakdown.slice(0, 4).map((s: { subject: string; _count: number }, i: number) => (
-                  <div key={s.subject} className="flex items-center gap-2 text-xs">
-                    <span className="text-muted-foreground w-4">{i + 1}</span>
-                    <span className="flex-1 truncate">{s.subject}</span>
-                    <span className="text-muted-foreground">{s._count}</span>
-                  </div>
-                ))}
-              </div>
+          {/* Empty state when no tasks */}
+          {todayTasks.length === 0 && !loadingToday && (
+            <div className="text-center py-6 text-muted-foreground">
+              <p className="text-sm mb-3">No tasks scheduled for today</p>
+              <Link to="/syllabus" className="text-primary text-sm hover:underline inline-block">
+                Add subjects to generate tasks →
+              </Link>
             </div>
           )}
         </div>

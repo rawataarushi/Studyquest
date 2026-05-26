@@ -151,5 +151,26 @@ router.get('/badges', async (req: AuthRequest, res: Response): Promise<void> => 
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
+// GET /api/users/all - Get list of all users for challenges
+router.get('/all', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const users = await prisma.user.findMany({
+      where: { id: { not: req.userId! } }, // Exclude current user
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        level: true,
+        xp: true,
+        branch: true,
+        semester: true,
+      },
+      orderBy: { xp: 'desc' },
+      take: 100,
+    });
+    res.json({ users });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 export { getLevel };
 export default router;
